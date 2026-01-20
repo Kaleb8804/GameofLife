@@ -1,0 +1,1421 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Life 1000x1000 — Final (Right-pan override + Toggle threshold + No scroll)</title>
+  <style>
+    :root{
+      --bg:#101010; --panel:#171717; --fg:#f0f0f0; --muted:#b0b0b0;
+      --border:#2a2a2a; --btn:#242424; --btn2:#2c2c2c; --accent:#4aa3ff;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:14px/1.3 system-ui,Segoe UI,Roboto,Arial; overflow:hidden;}
+    .app{display:grid;grid-template-columns:460px 1fr;height:100%}
+    .panel{background:var(--panel);border-right:1px solid var(--border);padding:12px;overflow:auto}
+    h2{margin:6px 0 10px;font-size:16px}
+    h3{margin:14px 0 8px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .grow{flex:1 1 auto;min-width:120px}
+    .sep{height:1px;background:var(--border);margin:10px 0}
+    .small{font-size:12px;color:var(--muted)}
+    .pill{padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted);font-size:12px}
+    button{border:1px solid var(--border);background:var(--btn);color:var(--fg);padding:7px 10px;border-radius:10px;cursor:pointer;user-select:none}
+    button:hover{background:var(--btn2)}
+    button.primary{border-color:#2d5cff;background:#18335f}
+    button.primary:hover{background:#1f4482}
+    button.tog.active{outline:2px solid var(--accent)}
+    label{display:flex;gap:6px;align-items:center}
+    input[type="number"], input[type="text"], select{
+      width:100%;padding:6px 8px;border:1px solid var(--border);background:#0f0f0f;color:var(--fg);
+      border-radius:8px;outline:none
+    }
+    input[type="range"]{width:100%}
+
+    .canvasWrap{
+      position:relative;
+      overflow:hidden;
+      background:#000;
+      overscroll-behavior:none; /* stops “rubber band” and scroll chaining */
+      touch-action:none;         /* prevent browser gestures on touch */
+    }
+    canvas#cv{
+      width:100%;
+      height:100%;
+      display:block;
+      image-rendering:pixelated;
+      image-rendering:crisp-edges;
+      touch-action:none;
+    }
+
+    .pair{display:grid;grid-template-columns:1fr 74px;gap:8px;align-items:center;margin:6px 0}
+
+    .stampWrap{border:1px solid var(--border);border-radius:12px;padding:10px;background:#111}
+    .stampGrid{
+      display:grid;
+      grid-template-columns: repeat(15, 1fr);
+      gap:2px;
+      user-select:none;
+      touch-action:none;
+    }
+    .stampCell{
+      width: 18px; height: 18px;
+      border:1px solid #333;
+      background:#0a0a0a;
+      border-radius:4px;
+      cursor:pointer;
+    }
+    .stampCell.on{background:#eaeaea;border-color:#eaeaea}
+
+    .checks{display:flex;flex-wrap:wrap;gap:6px}
+    .checks label{margin-right:2px}
+
+    details{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:8px 10px;
+      background:#111;
+      margin-top:8px;
+    }
+    details > summary{
+      cursor:pointer;
+      user-select:none;
+      font-weight:600;
+      color:var(--fg);
+      list-style:none;
+    }
+    details > summary::-webkit-details-marker{display:none}
+    .detailsHint{margin-top:4px}
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="panel">
+    <h2>Life + Stamp <span class="pill" id="badge">1000×1000</span></h2>
+
+    <h3>Simulation</h3>
+    <div class="row">
+      <button id="btnPlay" class="primary">Play</button>
+      <button id="btnPause">Pause</button>
+      <button id="btnStepF">Step ▶</button>
+      <button id="btnStepB">Step ◀</button>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <button id="btnHoldF">Hold ▶▶</button>
+      <button id="btnHoldB">Hold ◀◀</button>
+      <span class="pill" id="stat">t=0</span>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="row">
+      <div class="grow">
+        <label class="small">Speed (steps/sec)</label>
+        <input id="speed" type="number" min="1" max="240" value="20" />
+      </div>
+      <div style="width:200px;">
+        <label class="small">Speed slider</label>
+        <input id="speedSlider" type="range" min="1" max="120" step="1" value="20" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div class="grow">
+        <label class="small">Zoom (px per cell)</label>
+        <input id="zoomNum" type="number" min="1" max="5000" step="1" value="10" />
+      </div>
+      <div style="width:220px;">
+        <label class="small">Zoom slider</label>
+        <input id="zoomSlider" type="range" min="1" max="200" step="1" value="10" />
+      </div>
+      <div class="small">Wheel zoom works.</div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <label><input id="wrapEdges" type="checkbox" checked> Wrap edges</label>
+      <label><input id="showGrid" type="checkbox"> Grid overlay</label>
+      <label><input id="showPredict" type="checkbox"> 1-step prediction (paused)</label>
+    </div>
+
+    <div class="row" style="margin-top:8px;">
+      <div class="grow">
+        <label class="small">Grid thickness (px)</label>
+        <input id="gridPxNum" type="number" min="0.5" max="6" step="0.5" value="1" />
+      </div>
+      <div style="width:220px;">
+        <label class="small">Grid thickness</label>
+        <input id="gridPxSlider" type="range" min="0.5" max="6" step="0.5" value="1" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div class="grow">
+        <label class="small">History depth (steps)</label>
+        <input id="histDepth" type="number" min="1" max="120" step="1" value="30" />
+        <div class="small">Step-back uses snapshots; higher = more RAM.</div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h3>Tools</h3>
+    <div class="row" id="toolsRow">
+      <button class="tog active" id="toolPen">Pen (Stamp)</button>
+      <button class="tog" id="toolEraser">Eraser</button>
+      <button class="tog" id="toolToggle">Toggle cell</button>
+      <button class="tog" id="toolHL">Highlighter</button>
+      <button class="tog" id="toolHLErase">HL Erase</button>
+      <button class="tog" id="toolPan">Pan</button>
+    </div>
+    <label style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+      <input id="smoothDraw" type="checkbox" checked>
+      <span class="small">Smooth draw (fills gaps while dragging)</span>
+    </label>
+    <div class="small" style="margin-top:6px;">
+      Right-drag pans <b>always</b>. Toggle tool: left click toggles, left drag pans after threshold.
+    </div>
+
+    <div class="sep"></div>
+
+    <h3>Stamp (15×15)</h3>
+    <div class="stampWrap">
+      <div class="small">Click to toggle; drag to paint. Pen/Eraser/HL uses this stamp centered on cursor.</div>
+      <div style="margin-top:8px;" class="stampGrid" id="stampGrid"></div>
+      <div class="row" style="margin-top:10px;">
+        <button id="stampClear">Clear</button>
+        <button id="stampInvert">Invert</button>
+        <button id="stampGlider">+ Glider</button>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h3>Trail</h3>
+    <div class="row">
+      <label><input id="trailOn" type="checkbox"> Enable trail</label>
+      <button id="trailClear">Clear trail</button>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div class="grow">
+        <label class="small">Trail lifespan (steps)</label>
+        <input id="trailLife" type="number" min="1" max="1000000" step="1" value="30" />
+      </div>
+      <div style="width:220px;">
+        <label class="small">Trail opacity</label>
+        <input id="trailOp" type="range" min="0" max="255" step="1" value="60" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div class="grow">
+        <label class="small">Gradient steps (A → B timing)</label>
+        <input id="trailGradSteps" type="number" min="1" max="1000000" step="1" value="30" />
+        <div class="small">Lower = transitions faster; higher = stays near Color A longer.</div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h3>Color Editors</h3>
+    <div class="small detailsHint">Fade: 0 = black, 128 = your RGB, 255 = white.</div>
+
+    <details open>
+      <summary>Cell Color</summary>
+      <div class="pair"><input id="cellR" type="range" min="0" max="255" value="255"><input id="cellRNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="cellG" type="range" min="0" max="255" value="255"><input id="cellGNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="cellB" type="range" min="0" max="255" value="255"><input id="cellBNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="cellA" type="range" min="0" max="255" value="255"><input id="cellANum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="cellF" type="range" min="0" max="255" value="128"><input id="cellFNum" type="number" min="0" max="255" value="128"></div>
+    </details>
+
+    <details>
+      <summary>Highlighter Color</summary>
+      <div class="pair"><input id="hlR" type="range" min="0" max="255" value="255"><input id="hlRNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="hlG" type="range" min="0" max="255" value="0"><input id="hlGNum" type="number" min="0" max="255" value="0"></div>
+      <div class="pair"><input id="hlB" type="range" min="0" max="255" value="0"><input id="hlBNum" type="number" min="0" max="255" value="0"></div>
+      <div class="pair"><input id="hlA" type="range" min="0" max="255" value="120"><input id="hlANum" type="number" min="0" max="255" value="120"></div>
+      <div class="pair"><input id="hlF" type="range" min="0" max="255" value="128"><input id="hlFNum" type="number" min="0" max="255" value="128"></div>
+    </details>
+
+    <details>
+      <summary>Trail Gradient — Color A</summary>
+      <div class="pair"><input id="tr1R" type="range" min="0" max="255" value="255"><input id="tr1RNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="tr1G" type="range" min="0" max="255" value="255"><input id="tr1GNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="tr1B" type="range" min="0" max="255" value="255"><input id="tr1BNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="tr1A" type="range" min="0" max="255" value="255"><input id="tr1ANum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="tr1F" type="range" min="0" max="255" value="128"><input id="tr1FNum" type="number" min="0" max="255" value="128"></div>
+    </details>
+
+    <details>
+      <summary>Trail Gradient — Color B</summary>
+      <div class="pair"><input id="tr2R" type="range" min="0" max="255" value="255"><input id="tr2RNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="tr2G" type="range" min="0" max="255" value="255"><input id="tr2GNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="tr2B" type="range" min="0" max="255" value="255"><input id="tr2BNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="tr2A" type="range" min="0" max="255" value="255"><input id="tr2ANum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="tr2F" type="range" min="0" max="255" value="128"><input id="tr2FNum" type="number" min="0" max="255" value="128"></div>
+    </details>
+
+    <details>
+      <summary>Prediction — Turn ON (OFF → ON)</summary>
+      <div class="pair"><input id="pOnR" type="range" min="0" max="255" value="0"><input id="pOnRNum" type="number" min="0" max="255" value="0"></div>
+      <div class="pair"><input id="pOnG" type="range" min="0" max="255" value="255"><input id="pOnGNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="pOnB" type="range" min="0" max="255" value="255"><input id="pOnBNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="pOnA" type="range" min="0" max="255" value="140"><input id="pOnANum" type="number" min="0" max="255" value="140"></div>
+      <div class="pair"><input id="pOnF" type="range" min="0" max="255" value="128"><input id="pOnFNum" type="number" min="0" max="255" value="128"></div>
+    </details>
+
+    <details>
+      <summary>Prediction — Turn OFF (ON → OFF)</summary>
+      <div class="pair"><input id="pOffR" type="range" min="0" max="255" value="255"><input id="pOffRNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="pOffG" type="range" min="0" max="255" value="90"><input id="pOffGNum" type="number" min="0" max="255" value="90"></div>
+      <div class="pair"><input id="pOffB" type="range" min="0" max="255" value="0"><input id="pOffBNum" type="number" min="0" max="255" value="0"></div>
+      <div class="pair"><input id="pOffA" type="range" min="0" max="255" value="110"><input id="pOffANum" type="number" min="0" max="255" value="110"></div>
+      <div class="pair"><input id="pOffF" type="range" min="0" max="255" value="128"><input id="pOffFNum" type="number" min="0" max="255" value="128"></div>
+    </details>
+
+    <details>
+      <summary>Prediction — Neutral (unchanged)</summary>
+      <div class="small" style="margin-top:6px;">Default is transparent (Opacity 0). If you raise opacity, it will tint everything unchanged.</div>
+      <div class="pair"><input id="pNeuR" type="range" min="0" max="255" value="255"><input id="pNeuRNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="pNeuG" type="range" min="0" max="255" value="255"><input id="pNeuGNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="pNeuB" type="range" min="0" max="255" value="255"><input id="pNeuBNum" type="number" min="0" max="255" value="255"></div>
+      <div class="pair"><input id="pNeuA" type="range" min="0" max="255" value="0"><input id="pNeuANum" type="number" min="0" max="255" value="0"></div>
+      <div class="pair"><input id="pNeuF" type="range" min="0" max="255" value="128"><input id="pNeuFNum" type="number" min="0" max="255" value="128"></div>
+    </details>
+
+    <div class="sep"></div>
+
+    <h3>Rules (Life-like)</h3>
+    <div class="row">
+      <div class="grow">
+        <label class="small">Preset</label>
+        <select id="rulePreset">
+          <option value="B3/S23" selected>Conway (B3/S23)</option>
+          <option value="B36/S23">HighLife (B36/S23)</option>
+          <option value="B2/S">Seeds (B2/S)</option>
+          <option value="B3678/S34678">Day & Night (B3678/S34678)</option>
+        </select>
+      </div>
+      <div style="width:160px;">
+        <label class="small">Rule string</label>
+        <input id="ruleText" type="text" value="B3/S23" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div class="grow">
+        <label class="small">Neighborhood range (Moore)</label>
+        <input id="nbrRange" type="number" min="1" max="5" step="1" value="1" />
+        <div class="small">Range=1 is standard. Higher is much slower.</div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div class="grow">
+        <div class="small">Birth (B): OFF → ON when neighbors =</div>
+        <div class="checks" id="birthChecks"></div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div class="grow">
+        <div class="small">Survival (S): ON stays ON when neighbors =</div>
+        <div class="checks" id="surviveChecks"></div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h3>Extra Grounding Knobs</h3>
+    <div class="row">
+      <div class="grow">
+        <label class="small">Mutation rate (flip chance per cell per step)</label>
+        <input id="mutRate" type="number" min="0" max="1" step="0.0001" value="0" />
+        <div class="small">Example: 0.001 = 0.1% chance per cell per step.</div>
+      </div>
+      <div style="width:220px;">
+        <label class="small">Mutation slider</label>
+        <input id="mutRateSlider" type="range" min="0" max="0.02" step="0.0001" value="0" />
+        <div class="small">Slider max is 0.02 (2%). Type higher if needed.</div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div class="grow">
+        <label class="small">Lifespan (max age in steps; 0 = off)</label>
+        <input id="lifespan" type="number" min="0" max="1000000" step="1" value="0" />
+        <div class="small">If &gt;0, cells die once age exceeds lifespan.</div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <h3>World Actions</h3>
+    <div class="row">
+      <button id="worldClear">Clear world</button>
+      <button id="hlClear">Clear highlight</button>
+      <button id="worldRandom">Random</button>
+      <div class="grow">
+        <label class="small">Random density</label>
+        <input id="randDensity" type="number" min="0" max="1" step="0.01" value="0.12" />
+      </div>
+    </div>
+
+    <div class="small" style="margin-top:10px;">
+      <div><b>Controls</b></div>
+      <div>Space: Play/Pause</div>
+      <div>ArrowRight/ArrowLeft: Step forward/back</div>
+      <div>Mouse wheel: Zoom</div>
+      <div>Right-drag: Pan (always)</div>
+    </div>
+  </div>
+
+  <div class="canvasWrap">
+    <canvas id="cv"></canvas>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ===== World size =====
+  const W = 1000, H = 1000, N = W * H;
+
+  let cur = new Uint8Array(N);
+  let nxt = new Uint8Array(N);
+
+  let age = new Uint16Array(N);
+  let ageN = new Uint16Array(N);
+
+  let hl = new Uint8Array(N);
+
+  // Trail = remaining life (0..trailLife)
+  let trail = new Uint16Array(N);
+  let trailOn = false;
+  let trailLife = 30;
+  let trailOpacity = 60; // 0..255
+  let trailGradSteps = 30;
+
+  // Prediction
+  let showPredict = false;
+  let predOn  = new Uint8Array(N); // OFF->ON
+  let predOff = new Uint8Array(N); // ON->OFF
+  let predDirty = true;
+
+  // Step-back snapshots
+  let history = [];
+  let maxHistory = 30;
+  let t = 0;
+
+  // Stamp
+  const ST = 15;
+  const stamp = new Uint8Array(ST * ST);
+  const sIdx = (x,y)=> y*ST + x;
+
+  // Tools
+  const Tool = { PEN:"pen", ERASER:"eraser", TOGGLE:"toggle", HL:"hl", HL_ERASE:"hl_erase", PAN:"pan" };
+  let tool = Tool.PEN;
+
+  let wrapEdges = true;
+  let showGrid = false;
+  let smoothDraw = true;
+
+  // Zoom/pan
+  let zoomRequested = 10;
+  let zoom = 10;         // integer zoom for crisp fills
+  let gridPx = 1.0;
+  let panX = 0, panY = 0;
+
+  // Simulation
+  let playing = false;
+  let stepsPerSec = 20;
+  let timer = null;
+  let holdTimer = null;
+
+  // Grounding knobs
+  let mutationRate = 0;
+  let lifespan = 0;
+
+  // Rules
+  let birthSet = new Set([3]);
+  let surviveSet = new Set([2,3]);
+  let nbrRange = 1;
+
+  // ===== Color model: {r,g,b,a,fade} (0..255) =====
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  function mkColor(r,g,b,a,fade=128){ return {r,g,b,a,fade}; }
+
+  // Fade meaning: 0 black -> 128 original RGB -> 255 white
+  function applyFade(c){
+    const f = clamp(c.fade|0, 0, 255);
+    let r = c.r|0, g = c.g|0, b = c.b|0;
+
+    if (f < 128){
+      const tt = f / 128;
+      r = Math.round(r * tt);
+      g = Math.round(g * tt);
+      b = Math.round(b * tt);
+    } else if (f > 128){
+      const tt = (f - 128) / 127;
+      r = Math.round(r*(1-tt) + 255*tt);
+      g = Math.round(g*(1-tt) + 255*tt);
+      b = Math.round(b*(1-tt) + 255*tt);
+    }
+    return { r, g, b, a: (c.a|0)/255 };
+  }
+
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function lerpColor(c1,c2,t){
+    return {
+      r: Math.round(lerp(c1.r, c2.r, t)),
+      g: Math.round(lerp(c1.g, c2.g, t)),
+      b: Math.round(lerp(c1.b, c2.b, t)),
+      a: lerp(c1.a, c2.a, t),
+    };
+  }
+
+  // Actual colors used by rendering
+  let cellColor = mkColor(255,255,255,255,128);
+  let hlColor   = mkColor(255,0,0,120,128);
+
+  let trailC1   = mkColor(255,255,255,255,128);
+  let trailC2   = mkColor(255,255,255,255,128);
+
+  let predOnColor  = mkColor(0,255,255,140,128);
+  let predOffColor = mkColor(255,90,0,110,128);
+  let predNeuColor = mkColor(255,255,255,0,128);
+
+  // DOM
+  const cv = document.getElementById("cv");
+  const ctx = cv.getContext("2d", { alpha: false });
+  ctx.imageSmoothingEnabled = false;
+
+  const stat = document.getElementById("stat");
+
+  // Index helpers
+  const idx = (x,y)=> y*W + x;
+  function markStateDirty(){ predDirty = true; }
+
+  function updateStat(){
+    stat.textContent = `t=${t} | hist=${history.length}/${maxHistory} | zoom=${zoom}px | pan=(${panX},${panY})`;
+  }
+
+  function setTool(newTool){
+    tool = newTool;
+    document.querySelectorAll(".tog").forEach(b=>b.classList.remove("active"));
+    const map = { pen:"toolPen", eraser:"toolEraser", toggle:"toolToggle", hl:"toolHL", hl_erase:"toolHLErase", pan:"toolPan" };
+    document.getElementById(map[newTool]).classList.add("active");
+    cv.style.cursor = (tool===Tool.PAN) ? "grab" : "crosshair";
+  }
+
+  // DPR sizing (crisp)
+  function resizeCanvas(){
+    const dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    cv.width = Math.floor(r.width * dpr);
+    cv.height = Math.floor(r.height * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.imageSmoothingEnabled = false;
+    render();
+  }
+  window.addEventListener("resize", resizeCanvas);
+
+  function viewport(){
+    const r = cv.getBoundingClientRect();
+    const vW = clamp(Math.floor(r.width / zoom), 1, W);
+    const vH = clamp(Math.floor(r.height / zoom), 1, H);
+    panX = clamp(panX, 0, W - vW);
+    panY = clamp(panY, 0, H - vH);
+    return { vW, vH };
+  }
+
+  function screenToCell(ev){
+    const r = cv.getBoundingClientRect();
+    const x = Math.floor((ev.clientX - r.left) / zoom) + panX;
+    const y = Math.floor((ev.clientY - r.top) / zoom) + panY;
+    return { x: clamp(x,0,W-1), y: clamp(y,0,H-1) };
+  }
+
+  function setZoom(val){
+    zoomRequested = clamp(parseInt(val,10)||1, 1, 5000);
+    zoom = Math.max(1, Math.round(zoomRequested)); // keep integer for crisp squares
+    document.getElementById("zoomNum").value = String(zoomRequested);
+    document.getElementById("zoomSlider").value = String(clamp(zoomRequested, 1, 200));
+    updateStat();
+    render();
+  }
+
+  function setGridPx(val){
+    gridPx = clamp(parseFloat(val)||1, 0.5, 6);
+    document.getElementById("gridPxNum").value = String(gridPx);
+    document.getElementById("gridPxSlider").value = String(gridPx);
+    render();
+  }
+
+  // Smooth draw line (Bresenham)
+  function forEachCellOnLine(x0, y0, x1, y1, fn){
+    let dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    let dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    let err = dx + dy;
+    while (true){
+      fn(x0, y0);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err;
+      if (e2 >= dy){ err += dy; x0 += sx; }
+      if (e2 <= dx){ err += dx; y0 += sy; }
+    }
+  }
+
+  // Stamp ops
+  function applyStampWorld(cx, cy, mode){
+    const half = Math.floor(ST/2);
+    for (let sy=0; sy<ST; sy++){
+      const wy = cy + (sy - half);
+      if (wy < 0 || wy >= H) continue;
+      for (let sx=0; sx<ST; sx++){
+        if (!stamp[sIdx(sx,sy)]) continue;
+        const wx = cx + (sx - half);
+        if (wx < 0 || wx >= W) continue;
+        const i = idx(wx,wy);
+        if (mode==="add") { cur[i] = 1; age[i] = age[i] ? age[i] : 1; }
+        else if (mode==="sub") { cur[i] = 0; age[i] = 0; }
+        else { cur[i] ^= 1; age[i] = cur[i] ? 1 : 0; }
+      }
+    }
+    markStateDirty();
+  }
+
+  function applyStampHL(cx, cy, mode){
+    const half = Math.floor(ST/2);
+    for (let sy=0; sy<ST; sy++){
+      const wy = cy + (sy - half);
+      if (wy < 0 || wy >= H) continue;
+      for (let sx=0; sx<ST; sx++){
+        if (!stamp[sIdx(sx,sy)]) continue;
+        const wx = cx + (sx - half);
+        if (wx < 0 || wx >= W) continue;
+        const i = idx(wx,wy);
+        if (mode==="add") hl[i] = 1;
+        else if (mode==="sub") hl[i] = 0;
+        else hl[i] ^= 1;
+      }
+    }
+  }
+
+  function applyToolAtCell(x, y){
+    if (tool === Tool.TOGGLE){
+      const i = idx(x,y);
+      cur[i] ^= 1;
+      age[i] = cur[i] ? 1 : 0;
+      markStateDirty();
+      return;
+    }
+    if (tool === Tool.ERASER){ applyStampWorld(x,y,"sub"); return; }
+    if (tool === Tool.HL){ applyStampHL(x,y,"add"); return; }
+    if (tool === Tool.HL_ERASE){ applyStampHL(x,y,"sub"); return; }
+    applyStampWorld(x,y,"add");
+  }
+
+  // Rules
+  function maxNeighborsForRange(r){ return (2*r + 1) * (2*r + 1) - 1; }
+  function parseRuleString(ruleStr){
+    ruleStr = (ruleStr || "").toUpperCase().replace(/\s+/g, "");
+    const m = ruleStr.match(/^B([0-9]*)\/S([0-9]*)$/);
+    if (!m) return null;
+    const b = new Set([...m[1]].filter(ch=>ch>="0"&&ch<="9").map(ch=>parseInt(ch,10)));
+    const s = new Set([...m[2]].filter(ch=>ch>="0"&&ch<="9").map(ch=>parseInt(ch,10)));
+    return { b, s };
+  }
+  function ruleToString(){
+    const b = [...birthSet].sort((a,b)=>a-b).join("");
+    const s = [...surviveSet].sort((a,b)=>a-b).join("");
+    return `B${b}/S${s}`;
+  }
+
+  function makeNeighborCounter(){
+    const r = nbrRange|0;
+    if (r === 1) {
+      if (wrapEdges) {
+        return function nCount(x,y){
+          const xm1=(x+W-1)%W, xp1=(x+1)%W, ym1=(y+H-1)%H, yp1=(y+1)%H;
+          let c=0;
+          c += cur[idx(xm1,ym1)] + cur[idx(x,ym1)] + cur[idx(xp1,ym1)];
+          c += cur[idx(xm1,y)]                  +    cur[idx(xp1,y)];
+          c += cur[idx(xm1,yp1)] + cur[idx(x,yp1)] + cur[idx(xp1,yp1)];
+          return c;
+        };
+      }
+      return function nCount(x,y){
+        let c=0;
+        for (let dy=-1; dy<=1; dy++){
+          for (let dx=-1; dx<=1; dx++){
+            if (!dx && !dy) continue;
+            const nx=x+dx, ny=y+dy;
+            if (nx<0||nx>=W||ny<0||ny>=H) continue;
+            c += cur[idx(nx,ny)];
+          }
+        }
+        return c;
+      };
+    }
+    if (wrapEdges) {
+      return function nCount(x,y){
+        let c=0;
+        for (let dy=-r; dy<=r; dy++){
+          for (let dx=-r; dx<=r; dx++){
+            if (!dx && !dy) continue;
+            const nx = (x + dx + W) % W;
+            const ny = (y + dy + H) % H;
+            c += cur[idx(nx,ny)];
+          }
+        }
+        return c;
+      };
+    }
+    return function nCount(x,y){
+      let c=0;
+      for (let dy=-r; dy<=r; dy++){
+        for (let dx=-r; dx<=r; dx++){
+          if (!dx && !dy) continue;
+          const nx=x+dx, ny=y+dy;
+          if (nx<0||nx>=W||ny<0||ny>=H) continue;
+          c += cur[idx(nx,ny)];
+        }
+      }
+      return c;
+    };
+  }
+
+  function rebuildRuleCheckboxes(){
+    const maxN = maxNeighborsForRange(nbrRange);
+    const birthWrap = document.getElementById("birthChecks");
+    const survWrap  = document.getElementById("surviveChecks");
+    birthWrap.innerHTML = "";
+    survWrap.innerHTML  = "";
+
+    const mk = (n, setRef, onChange) => {
+      const lab = document.createElement("label");
+      lab.style.whiteSpace = "nowrap";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = setRef.has(n);
+      cb.addEventListener("change", () => onChange(n, cb.checked));
+      lab.appendChild(cb);
+      const txt = document.createElement("span");
+      txt.textContent = ` ${n}`;
+      txt.className = "small";
+      lab.appendChild(txt);
+      return lab;
+    };
+
+    for (let n=0; n<=maxN; n++){
+      birthWrap.appendChild(mk(n, birthSet, (k,on)=>{
+        if (on) birthSet.add(k); else birthSet.delete(k);
+        document.getElementById("ruleText").value = ruleToString();
+        markStateDirty(); render();
+      }));
+    }
+    for (let n=0; n<=maxN; n++){
+      survWrap.appendChild(mk(n, surviveSet, (k,on)=>{
+        if (on) surviveSet.add(k); else surviveSet.delete(k);
+        document.getElementById("ruleText").value = ruleToString();
+        markStateDirty(); render();
+      }));
+    }
+
+    document.getElementById("ruleText").value = ruleToString();
+  }
+
+  function initRuleEditor(){
+    const preset  = document.getElementById("rulePreset");
+    const ruleTxt = document.getElementById("ruleText");
+    const rangeIn = document.getElementById("nbrRange");
+
+    preset.addEventListener("change", ()=>{
+      const parsed = parseRuleString(preset.value);
+      if (parsed){
+        birthSet = parsed.b;
+        surviveSet = parsed.s;
+        ruleTxt.value = ruleToString();
+        rebuildRuleCheckboxes();
+        markStateDirty(); render();
+      }
+    });
+
+    ruleTxt.addEventListener("input", ()=>{
+      const parsed = parseRuleString(ruleTxt.value);
+      if (parsed){
+        birthSet = parsed.b;
+        surviveSet = parsed.s;
+        rebuildRuleCheckboxes();
+        markStateDirty(); render();
+      }
+    });
+
+    rangeIn.addEventListener("input", ()=>{
+      nbrRange = clamp(parseInt(rangeIn.value,10)||1, 1, 5);
+      rangeIn.value = String(nbrRange);
+      rebuildRuleCheckboxes();
+      markStateDirty(); render();
+    });
+
+    rebuildRuleCheckboxes();
+  }
+
+  // Prediction masks: OFF->ON and ON->OFF (deterministic, ignores mutation randomness)
+  function computePredictionMasks(){
+    predOn.fill(0);
+    predOff.fill(0);
+
+    const nCount = makeNeighborCounter();
+
+    for (let y=0;y<H;y++){
+      for (let x=0;x<W;x++){
+        const i = y*W + x;
+        const a = cur[i];
+        const n = nCount(x,y);
+
+        let nextAlive = a ? surviveSet.has(n) : birthSet.has(n);
+        if (nextAlive){
+          const nextAge = a ? (age[i] + 1) : 1;
+          if (lifespan > 0 && nextAge > lifespan) nextAlive = false;
+        }
+
+        if (!a && nextAlive) predOn[i] = 1;
+        else if (a && !nextAlive) predOff[i] = 1;
+      }
+    }
+    predDirty = false;
+  }
+
+  // Trail updates
+  function updateTrailAfterStep(){
+    if (!trailOn) return;
+    for (let i=0;i<N;i++){
+      if (trail[i] > 0) trail[i]--;
+      if (cur[i]) trail[i] = trailLife;
+    }
+  }
+
+  // History
+  function pushSnapshot(){
+    history.push({ cur: cur.slice(), age: age.slice() });
+    while (history.length > maxHistory) history.shift();
+  }
+
+  function stepForward(){
+    pushSnapshot();
+
+    const nCount = makeNeighborCounter();
+    const useMutation = mutationRate > 0;
+
+    for (let y=0;y<H;y++){
+      for (let x=0;x<W;x++){
+        const i = y*W + x;
+        const a = cur[i];
+        const n = nCount(x,y);
+
+        let nextAlive = a ? surviveSet.has(n) : birthSet.has(n);
+        let nextAge = 0;
+
+        if (nextAlive){
+          nextAge = a ? (age[i] + 1) : 1;
+          if (lifespan > 0 && nextAge > lifespan){
+            nextAlive = false;
+            nextAge = 0;
+          }
+        }
+
+        if (useMutation && Math.random() < mutationRate){
+          nextAlive = !nextAlive;
+          nextAge = nextAlive ? 1 : 0;
+        }
+
+        nxt[i] = nextAlive ? 1 : 0;
+        ageN[i] = nextAge;
+      }
+    }
+
+    let tmp = cur; cur = nxt; nxt = tmp;
+    let tmpA = age; age = ageN; ageN = tmpA;
+
+    t++;
+    markStateDirty();
+    updateTrailAfterStep();
+    updateStat();
+    render();
+  }
+
+  function stepBackward(){
+    if (!history.length) return;
+    const snap = history.pop();
+    cur = snap.cur;
+    age = snap.age;
+    nxt = new Uint8Array(N);
+    ageN = new Uint16Array(N);
+
+    t = Math.max(0, t-1);
+    markStateDirty();
+    updateStat();
+    render();
+  }
+
+  function setPlaying(on){
+    playing = on;
+    clearInterval(timer);
+    timer = null;
+    if (playing){
+      timer = setInterval(stepForward, Math.max(1, Math.floor(1000/stepsPerSec)));
+    } else {
+      if (showPredict) markStateDirty();
+      render();
+    }
+  }
+
+  // Render
+  function render(){
+    const r = cv.getBoundingClientRect();
+    const { vW, vH } = viewport();
+
+    ctx.fillStyle = "rgb(0,0,0)";
+    ctx.fillRect(0,0,r.width,r.height);
+
+    // Trail first
+    if (trailOn && trailOpacity > 0 && trailLife > 0){
+      const baseAlpha = clamp(trailOpacity,0,255)/255;
+
+      const c1 = applyFade(trailC1);
+      const c2 = applyFade(trailC2);
+      const gradSteps = Math.max(1, trailGradSteps|0);
+
+      for (let y=0;y<vH;y++){
+        const wy = panY + y;
+        const base = wy*W + panX;
+        for (let x=0;x<vW;x++){
+          const i = base + x;
+          const tl = trail[i];
+          if (!tl) continue;
+
+          const ageSince = (trailLife - tl);
+          const tGrad = clamp(ageSince / gradSteps, 0, 1);
+          const col = lerpColor(c1, c2, tGrad);
+
+          const a = baseAlpha * (tl / trailLife) * col.a;
+          if (a <= 0) continue;
+
+          ctx.fillStyle = `rgba(${col.r},${col.g},${col.b},${a})`;
+          ctx.fillRect(x*zoom, y*zoom, zoom, zoom);
+        }
+      }
+    }
+
+    // Live cells
+    const cc = applyFade(cellColor);
+    if (cc.a > 0){
+      ctx.fillStyle = `rgba(${cc.r},${cc.g},${cc.b},${cc.a})`;
+      for (let y=0;y<vH;y++){
+        const wy = panY + y;
+        const base = wy*W + panX;
+        for (let x=0;x<vW;x++){
+          if (cur[base + x]) ctx.fillRect(x*zoom, y*zoom, zoom, zoom);
+        }
+      }
+    }
+
+    // Highlighter overlay
+    const hc = applyFade(hlColor);
+    if (hc.a > 0){
+      ctx.fillStyle = `rgba(${hc.r},${hc.g},${hc.b},${hc.a})`;
+      for (let y=0;y<vH;y++){
+        const wy = panY + y;
+        const base = wy*W + panX;
+        for (let x=0;x<vW;x++){
+          if (hl[base + x]) ctx.fillRect(x*zoom, y*zoom, zoom, zoom);
+        }
+      }
+    }
+
+    // Prediction overlay (paused)
+    if (showPredict && !playing){
+      if (predDirty) computePredictionMasks();
+
+      const onC  = applyFade(predOnColor);
+      const offC = applyFade(predOffColor);
+      const neuC = applyFade(predNeuColor);
+
+      // Neutral overlay (unchanged), if alpha > 0
+      if (neuC.a > 0){
+        ctx.fillStyle = `rgba(${neuC.r},${neuC.g},${neuC.b},${neuC.a})`;
+        for (let y=0;y<vH;y++){
+          const wy = panY + y;
+          const base = wy*W + panX;
+          for (let x=0;x<vW;x++){
+            const i = base + x;
+            if (!predOn[i] && !predOff[i]) ctx.fillRect(x*zoom, y*zoom, zoom, zoom);
+          }
+        }
+      }
+
+      // OFF->ON
+      if (onC.a > 0){
+        ctx.fillStyle = `rgba(${onC.r},${onC.g},${onC.b},${onC.a})`;
+        for (let y=0;y<vH;y++){
+          const wy = panY + y;
+          const base = wy*W + panX;
+          for (let x=0;x<vW;x++){
+            if (predOn[base + x]) ctx.fillRect(x*zoom, y*zoom, zoom, zoom);
+          }
+        }
+      }
+
+      // ON->OFF
+      if (offC.a > 0){
+        ctx.fillStyle = `rgba(${offC.r},${offC.g},${offC.b},${offC.a})`;
+        for (let y=0;y<vH;y++){
+          const wy = panY + y;
+          const base = wy*W + panX;
+          for (let x=0;x<vW;x++){
+            if (predOff[base + x]) ctx.fillRect(x*zoom, y*zoom, zoom, zoom);
+          }
+        }
+      }
+    }
+
+    // Grid overlay (subtle + decimated when zoomed out)
+    if (showGrid){
+      const spacingCells = (zoom < 8) ? Math.ceil(8 / zoom) : 1;
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.lineWidth = gridPx;
+      ctx.lineCap = "butt";
+
+      if (zoom >= 3){
+        for (let x=0; x<=vW; x+=spacingCells){
+          const px = (x*zoom) + 0.5;
+          ctx.beginPath(); ctx.moveTo(px,0); ctx.lineTo(px,vH*zoom); ctx.stroke();
+        }
+        for (let y=0; y<=vH; y+=spacingCells){
+          const py = (y*zoom) + 0.5;
+          ctx.beginPath(); ctx.moveTo(0,py); ctx.lineTo(vW*zoom,py); ctx.stroke();
+        }
+      }
+    }
+  }
+
+  // ===== Interaction (FIXED): no scroll + toggle threshold + immediate right-pan override =====
+  // - Right mouse drag: always pan (ALL tools), instantly, never draws.
+  // - Toggle tool: left click toggles; left drag pans only after threshold.
+  // - Drawing tools: left click/drag draws; right drag pans.
+  // - Wheel: zoom (prevent page scroll).
+  const DRAG_THRESHOLD_PX = 6;
+
+  let mouseDown = false;
+  let press = null;   // {x,y, cellX, cellY, panX, panY, rightDown, didPan, didDraw}
+  let panStart = null;
+  let lastCell = null;
+
+  function endAll(){
+    mouseDown = false;
+    press = null;
+    panStart = null;
+    lastCell = null;
+    cv.style.cursor = (tool===Tool.PAN) ? "grab" : "crosshair";
+  }
+
+  // Stop context menu
+  cv.oncontextmenu = (e)=>{ e.preventDefault(); return false; };
+
+  // Global release safety (fix missed clicks / release outside canvas)
+  window.addEventListener("mouseup", endAll, true);
+  window.addEventListener("blur", endAll, true);
+
+  function startPan(clientX, clientY){
+    press.didPan = true;
+    panStart = { x: clientX, y: clientY, panX: press.panX, panY: press.panY };
+    cv.style.cursor = "grabbing";
+  }
+
+  function panTo(clientX, clientY){
+    const { vW, vH } = viewport();
+    const ddx = clientX - panStart.x;
+    const ddy = clientY - panStart.y;
+    panX = clamp(panStart.panX - Math.round(ddx / zoom), 0, W - vW);
+    panY = clamp(panStart.panY - Math.round(ddy / zoom), 0, H - vH);
+    updateStat();
+    render();
+  }
+
+  // IMPORTANT: prevent page scroll/selection while interacting
+  cv.addEventListener("mousedown", (e)=> {
+    e.preventDefault();
+    e.stopPropagation();
+
+    mouseDown = true;
+    const c = screenToCell(e);
+
+    press = {
+      x: e.clientX,
+      y: e.clientY,
+      cellX: c.x,
+      cellY: c.y,
+      panX,
+      panY,
+      rightDown: (e.button === 2),
+      didPan: false,
+      didDraw: false
+    };
+
+    lastCell = c;
+
+    // RIGHT CLICK: pan immediately for everything
+    if (press.rightDown){
+      startPan(e.clientX, e.clientY);
+      return;
+    }
+
+    // LEFT CLICK:
+    if (tool === Tool.PAN){
+      startPan(e.clientX, e.clientY);
+      return;
+    }
+
+    // For drawing tools, apply immediately for responsiveness.
+    // Toggle tool waits until mouseup so left drag can become pan.
+    if (tool !== Tool.TOGGLE){
+      applyToolAtCell(c.x, c.y);
+      press.didDraw = true;
+      render();
+    }
+  }, { passive:false });
+
+  window.addEventListener("mousemove", (e)=> {
+    if (!mouseDown || !press) return;
+
+    // prevent page interactions while dragging
+    e.preventDefault();
+    e.stopPropagation();
+
+    // If right button becomes held mid-move, switch to pan immediately
+    const rightHeld = (e.buttons & 2) !== 0;
+    if (rightHeld && !press.didPan){
+      press.rightDown = true;
+      startPan(e.clientX, e.clientY);
+    }
+
+    // If panning, pan
+    if (press.didPan && panStart){
+      panTo(e.clientX, e.clientY);
+      return;
+    }
+
+    // Toggle tool: left drag pans only after threshold; no drawing while moving
+    if (tool === Tool.TOGGLE){
+      const dx = e.clientX - press.x;
+      const dy = e.clientY - press.y;
+      const dist2 = dx*dx + dy*dy;
+
+      if (!press.didPan && dist2 >= DRAG_THRESHOLD_PX*DRAG_THRESHOLD_PX){
+        startPan(press.x, press.y);
+      }
+      if (press.didPan && panStart){
+        panTo(e.clientX, e.clientY);
+      }
+      return;
+    }
+
+    // Other tools: left-drag draws (smooth)
+    if (press.didDraw){
+      const c = screenToCell(e);
+      if (lastCell){
+        if (smoothDraw){
+          forEachCellOnLine(lastCell.x, lastCell.y, c.x, c.y, (px, py)=>applyToolAtCell(px, py));
+        } else {
+          applyToolAtCell(c.x, c.y);
+        }
+      } else {
+        applyToolAtCell(c.x, c.y);
+      }
+      lastCell = c;
+      render();
+    }
+  }, { passive:false, capture:true });
+
+  cv.addEventListener("mouseup", (e)=> {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!press){ endAll(); return; }
+
+    // Any right-click interaction is pan-only (never draw/toggle)
+    if (press.rightDown || press.didPan){
+      endAll();
+      return;
+    }
+
+    // Toggle tool: left click toggles exactly one cell (only if you didn't pan)
+    if (tool === Tool.TOGGLE){
+      applyToolAtCell(press.cellX, press.cellY);
+      render();
+    }
+
+    endAll();
+  }, { passive:false });
+
+  // Wheel zoom (prevent page scroll)
+  cv.addEventListener("wheel", (ev)=>{
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const dir = Math.sign(ev.deltaY);
+    const step = ev.shiftKey ? 10 : (ev.ctrlKey ? 5 : 1);
+    setZoom(zoomRequested + (dir > 0 ? -step : step));
+  }, { passive:false });
+
+  // ===== Stamp editor =====
+  const stampGridEl = document.getElementById("stampGrid");
+  const stampCells = [];
+  let stampDrag = false;
+  let stampDragValue = 1;
+
+  function rebuildStampGrid(){
+    stampGridEl.innerHTML = "";
+    stampCells.length = 0;
+    for (let y=0;y<ST;y++){
+      for (let x=0;x<ST;x++){
+        const d = document.createElement("div");
+        d.className = "stampCell";
+        d.dataset.x = x;
+        d.dataset.y = y;
+        stampGridEl.appendChild(d);
+        stampCells.push(d);
+      }
+    }
+    refreshStampGrid();
+  }
+
+  function refreshStampGrid(){
+    for (let i=0;i<ST*ST;i++){
+      stampCells[i].classList.toggle("on", !!stamp[i]);
+    }
+  }
+
+  function stampCellAt(ev){
+    const t = ev.target;
+    if (!t || !t.classList.contains("stampCell")) return null;
+    const x = parseInt(t.dataset.x,10);
+    const y = parseInt(t.dataset.y,10);
+    return { x,y, i: sIdx(x,y) };
+  }
+
+  stampGridEl.addEventListener("pointerdown",(ev)=>{
+    ev.preventDefault();
+    const c = stampCellAt(ev);
+    if (!c) return;
+    stampDrag = true;
+    stamp[c.i] = stamp[c.i] ? 0 : 1;
+    stampDragValue = stamp[c.i];
+    refreshStampGrid();
+  }, { passive:false });
+
+  stampGridEl.addEventListener("pointermove",(ev)=>{
+    ev.preventDefault();
+    if (!stampDrag) return;
+    const c = stampCellAt(ev);
+    if (!c) return;
+    stamp[c.i] = stampDragValue;
+    refreshStampGrid();
+  }, { passive:false });
+
+  window.addEventListener("pointerup",()=>{ stampDrag=false; });
+
+  document.getElementById("stampClear").addEventListener("click",()=>{
+    stamp.fill(0);
+    refreshStampGrid();
+  });
+  document.getElementById("stampInvert").addEventListener("click",()=>{
+    for (let i=0;i<stamp.length;i++) stamp[i] ^= 1;
+    refreshStampGrid();
+  });
+  document.getElementById("stampGlider").addEventListener("click",()=>{
+    stamp.fill(0);
+    const cx = 7, cy = 7;
+    const pts = [[1,0],[2,1],[0,2],[1,2],[2,2]];
+    for (const [dx,dy] of pts){
+      const x = cx + dx - 1;
+      const y = cy + dy - 1;
+      if (x>=0&&x<ST&&y>=0&&y<ST) stamp[sIdx(x,y)] = 1;
+    }
+    refreshStampGrid();
+  });
+
+  // ===== Color binding helpers =====
+  function bindColor(prefix, obj, onChange){
+    const keys = [["R","r"],["G","g"],["B","b"],["A","a"],["F","fade"]];
+    function syncUI(letter, val){
+      document.getElementById(prefix+letter).value = String(val);
+      document.getElementById(prefix+letter+"Num").value = String(val);
+    }
+    function apply(letter, field, v){
+      const val = clamp(parseInt(v,10)||0, 0, 255);
+      obj[field] = val;
+      syncUI(letter, val);
+      if (onChange) onChange();
+      render();
+    }
+    for (const [letter, field] of keys){
+      const r = document.getElementById(prefix+letter);
+      const n = document.getElementById(prefix+letter+"Num");
+      r.addEventListener("input",()=>apply(letter, field, r.value));
+      n.addEventListener("input",()=>apply(letter, field, n.value));
+      syncUI(letter, obj[field]);
+    }
+  }
+
+  // ===== UI wiring =====
+  document.getElementById("btnPlay").addEventListener("click",()=>setPlaying(true));
+  document.getElementById("btnPause").addEventListener("click",()=>setPlaying(false));
+  document.getElementById("btnStepF").addEventListener("click",()=>{ setPlaying(false); stepForward(); });
+  document.getElementById("btnStepB").addEventListener("click",()=>{ setPlaying(false); stepBackward(); });
+
+  function startHold(dir){
+    stopHold();
+    setPlaying(false);
+    holdTimer = setInterval(()=>{ dir>0 ? stepForward() : stepBackward(); }, Math.max(1, Math.floor(1000/stepsPerSec)));
+  }
+  function stopHold(){ if (holdTimer){ clearInterval(holdTimer); holdTimer=null; } }
+  [["btnHoldF",+1],["btnHoldB",-1]].forEach(([id,dir])=>{
+    const b=document.getElementById(id);
+    b.addEventListener("pointerdown",(e)=>{ e.preventDefault(); startHold(dir); });
+    b.addEventListener("pointerup", stopHold);
+    b.addEventListener("pointerleave", stopHold);
+    b.addEventListener("pointercancel", stopHold);
+  });
+
+  function setSpeed(v){
+    stepsPerSec = clamp(parseInt(v,10)||1, 1, 240);
+    document.getElementById("speed").value = String(stepsPerSec);
+    document.getElementById("speedSlider").value = String(clamp(stepsPerSec,1,120));
+    if (playing) setPlaying(true);
+  }
+  document.getElementById("speed").addEventListener("input",(e)=>setSpeed(e.target.value));
+  document.getElementById("speedSlider").addEventListener("input",(e)=>setSpeed(e.target.value));
+  setSpeed(20);
+
+  document.getElementById("wrapEdges").addEventListener("change",(e)=>{ wrapEdges=e.target.checked; markStateDirty(); render(); });
+  document.getElementById("showGrid").addEventListener("change",(e)=>{ showGrid=e.target.checked; render(); });
+  document.getElementById("showPredict").addEventListener("change",(e)=>{ showPredict=!!e.target.checked; markStateDirty(); render(); });
+  document.getElementById("smoothDraw").addEventListener("change",(e)=>{ smoothDraw = !!e.target.checked; });
+
+  document.getElementById("zoomNum").addEventListener("input",(e)=>setZoom(e.target.value));
+  document.getElementById("zoomSlider").addEventListener("input",(e)=>setZoom(e.target.value));
+  setZoom(10);
+
+  document.getElementById("gridPxNum").addEventListener("input",(e)=>setGridPx(e.target.value));
+  document.getElementById("gridPxSlider").addEventListener("input",(e)=>setGridPx(e.target.value));
+  setGridPx(1);
+
+  document.getElementById("histDepth").addEventListener("input",(e)=>{
+    maxHistory = clamp(parseInt(e.target.value,10)||30, 1, 120);
+    e.target.value = String(maxHistory);
+    while (history.length > maxHistory) history.shift();
+    updateStat();
+  });
+
+  // Trail controls
+  document.getElementById("trailOn").addEventListener("change",(e)=>{ trailOn = !!e.target.checked; render(); });
+  document.getElementById("trailLife").addEventListener("input",(e)=>{
+    trailLife = clamp(parseInt(e.target.value,10)||1, 1, 1000000);
+    e.target.value = String(trailLife);
+  });
+  document.getElementById("trailOp").addEventListener("input",(e)=>{ trailOpacity = clamp(parseInt(e.target.value,10)||0,0,255); render(); });
+  document.getElementById("trailGradSteps").addEventListener("input",(e)=>{
+    trailGradSteps = clamp(parseInt(e.target.value,10)||1, 1, 1000000);
+    e.target.value = String(trailGradSteps);
+  });
+  document.getElementById("trailClear").addEventListener("click",()=>{ trail.fill(0); render(); });
+
+  // Colors: bind to objects
+  bindColor("cell", cellColor, ()=>markStateDirty());
+  bindColor("hl",   hlColor);
+  bindColor("tr1",  trailC1);
+  bindColor("tr2",  trailC2);
+  bindColor("pOn",  predOnColor);
+  bindColor("pOff", predOffColor);
+  bindColor("pNeu", predNeuColor);
+
+  // Mutation / lifespan
+  function setMut(v){
+    mutationRate = clamp(parseFloat(v)||0, 0, 1);
+    document.getElementById("mutRate").value = String(mutationRate);
+    document.getElementById("mutRateSlider").value = String(clamp(mutationRate, 0, 0.02));
+    markStateDirty();
+  }
+  document.getElementById("mutRate").addEventListener("input",(e)=>setMut(e.target.value));
+  document.getElementById("mutRateSlider").addEventListener("input",(e)=>setMut(e.target.value));
+  setMut(0);
+
+  document.getElementById("lifespan").addEventListener("input",(e)=>{
+    lifespan = clamp(parseInt(e.target.value,10)||0, 0, 1000000);
+    e.target.value = String(lifespan);
+    markStateDirty();
+    render();
+  });
+
+  // World actions
+  document.getElementById("worldClear").addEventListener("click",()=>{
+    setPlaying(false);
+    cur.fill(0); nxt.fill(0);
+    age.fill(0); ageN.fill(0);
+    trail.fill(0);
+    history.length = 0;
+    t = 0;
+    markStateDirty();
+    updateStat();
+    render();
+  });
+
+  document.getElementById("hlClear").addEventListener("click",()=>{ hl.fill(0); render(); });
+
+  document.getElementById("worldRandom").addEventListener("click",()=>{
+    setPlaying(false);
+    const d = clamp(parseFloat(document.getElementById("randDensity").value||"0.12"), 0, 1);
+    for (let i=0;i<N;i++){
+      const alive = Math.random() < d ? 1 : 0;
+      cur[i] = alive;
+      age[i] = alive ? 1 : 0;
+    }
+    nxt.fill(0);
+    ageN.fill(0);
+    history.length = 0;
+    t = 0;
+    markStateDirty();
+    updateStat();
+    render();
+  });
+
+  // Tools
+  document.getElementById("toolPen").addEventListener("click",()=>setTool(Tool.PEN));
+  document.getElementById("toolEraser").addEventListener("click",()=>setTool(Tool.ERASER));
+  document.getElementById("toolToggle").addEventListener("click",()=>setTool(Tool.TOGGLE));
+  document.getElementById("toolHL").addEventListener("click",()=>setTool(Tool.HL));
+  document.getElementById("toolHLErase").addEventListener("click",()=>setTool(Tool.HL_ERASE));
+  document.getElementById("toolPan").addEventListener("click",()=>setTool(Tool.PAN));
+
+  // Keyboard
+  window.addEventListener("keydown",(e)=>{
+    const tag=(e.target&&e.target.tagName)?e.target.tagName.toLowerCase():"";
+    const typing = tag==="input"||tag==="textarea"||tag==="select";
+    if (!typing && e.code==="Space"){ e.preventDefault(); setPlaying(!playing); }
+    if (!typing && e.code==="ArrowRight"){ e.preventDefault(); setPlaying(false); stepForward(); }
+    if (!typing && e.code==="ArrowLeft"){ e.preventDefault(); setPlaying(false); stepBackward(); }
+  });
+
+  // Init
+  initRuleEditor();
+  rebuildStampGrid();
+  updateStat();
+  resizeCanvas();
+  render();
+})();
+</script>
+</body>
+</html>
